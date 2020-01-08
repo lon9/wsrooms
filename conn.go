@@ -109,7 +109,8 @@ func HandleData(c *Conn, msg *Message) {
 	}
 }
 
-func (c *Conn) readPump() {
+// ReadPump is loop for reading
+func (c *Conn) ReadPump() {
 	defer func() {
 		c.Rooms.Range(func(k, v interface{}) bool {
 			room, ok := RoomManager.Rooms.Load(k.(string))
@@ -160,7 +161,8 @@ func (c *Conn) write(mt int, payload []byte) error {
 	return c.Socket.WriteMessage(mt, payload)
 }
 
-func (c *Conn) writePump() {
+// WritePump is loop for writing
+func (c *Conn) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -248,9 +250,9 @@ func SocketHandler(cr CookieReader) http.HandlerFunc {
 		}
 		c := NewConnection(w, r, cr)
 		if c != nil {
-			go c.writePump()
+			go c.WritePump()
 			c.Join("root")
-			go c.readPump()
+			go c.ReadPump()
 		}
 	}
 }
