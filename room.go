@@ -45,7 +45,7 @@ func (r *Room) Start() {
 		select {
 		case c := <-r.joinchan:
 			members := make([]string, 0)
-			r.Members.Range(func(k interface{}, v interface{}) bool {
+			r.Members.Range(func(k, v interface{}) bool {
 				members = append(members, k.(string))
 				return true
 			})
@@ -64,7 +64,7 @@ func (r *Room) Start() {
 			r.Members.Delete(id)
 			c.Send <- ConstructMessage(r.Name, "leave", "", id.(string), []byte(c.ID)).Bytes()
 		case rmsg := <-r.Send:
-			r.Members.Range(func(k interface{}, v interface{}) bool {
+			r.Members.Range(func(k, v interface{}) bool {
 				c, ok := ConnManager.Conns.Load(k)
 				if !ok || c == rmsg.Sender {
 					return true
