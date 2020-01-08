@@ -22,7 +22,7 @@ import (
 	"sync"
 )
 
-// The Room type represents a communication channel.
+// Room type represents a communication channel
 type Room struct {
 	Name      string
 	Members   *sync.Map
@@ -32,14 +32,14 @@ type Room struct {
 	Send      chan *RoomMessage
 }
 
-// Stores all Room types by their name.
+// RoomManager stores all Room types by their name
 var RoomManager = struct {
 	Rooms *sync.Map
 }{
 	Rooms: new(sync.Map),
 }
 
-// Starts the Room.
+// Start starts the Room
 func (r *Room) Start() {
 	for {
 		select {
@@ -84,27 +84,27 @@ func (r *Room) Start() {
 	}
 }
 
-// Stops the Room.
+// Stop stops the Room
 func (r *Room) Stop() {
 	r.stopchan <- true
 }
 
-// Adds a Conn to the Room.
+// Join adds a Conn to the Room
 func (r *Room) Join(c *Conn) {
 	r.joinchan <- c
 }
 
-// Removes a Conn from the Room.
+// Leave removes a Conn from the Room
 func (r *Room) Leave(c *Conn) {
 	r.leavechan <- c
 }
 
-// Broadcasts data to all members of the Room.
+// Emit broadcasts data to all members of the Room
 func (r *Room) Emit(c *Conn, msg *Message) {
 	r.Send <- &RoomMessage{c, msg.Bytes()}
 }
 
-// Creates a new Room type and starts it.
+// NewRoom creates a new Room type and starts it
 func NewRoom(name string) *Room {
 	r := &Room{
 		Name:      name,

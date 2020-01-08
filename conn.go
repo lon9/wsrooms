@@ -26,7 +26,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// The Conn type represents a single client.
+// Conn type represents a single client
 type Conn struct {
 	Cookie *sync.Map
 	Socket *websocket.Conn
@@ -35,6 +35,7 @@ type Conn struct {
 	Rooms  *sync.Map
 }
 
+// CookieReader reads cookie
 type CookieReader func(*http.Request) *sync.Map
 
 const (
@@ -51,17 +52,17 @@ var upgrader = websocket.Upgrader{
 }
 
 var (
-	// Stores all Conn types by their uuid.
+	// ConnManager stores all Conn types by their uuid
 	ConnManager = struct {
 		Conns *sync.Map
 	}{
 		Conns: new(sync.Map),
 	}
-	// Emits received Messages with non-reserved event names.
+	// Emitter emits received Messages with non-reserved event names
 	Emitter = emission.NewEmitter()
 )
 
-// Handles incoming, error free messages.
+// HandleData handles incoming, error free messages
 func HandleData(c *Conn, msg *Message) {
 	switch msg.Event {
 	case "join":
@@ -183,7 +184,7 @@ func (c *Conn) writePump() {
 	}
 }
 
-// Adds the Conn to a Room. If the Room does not exist, it is created.
+// Join adds the Conn to a Room. If the Room does not exist, it is created
 func (c *Conn) Join(name string) {
 	room, ok := RoomManager.Rooms.Load(name)
 	if !ok {
@@ -193,7 +194,7 @@ func (c *Conn) Join(name string) {
 	room.(*Room).Join(c)
 }
 
-// Removes the Conn from a Room.
+// Leave removes the Conn from a Room
 func (c *Conn) Leave(name string) {
 	room, rok := RoomManager.Rooms.Load(name)
 	if !rok {
@@ -207,7 +208,7 @@ func (c *Conn) Leave(name string) {
 	room.(*Room).Leave(c)
 }
 
-// Broadcasts a Message to all members of a Room.
+// Emit broadcasts a Message to all members of a Room
 func (c *Conn) Emit(msg *Message) {
 	room, ok := RoomManager.Rooms.Load(msg.Room)
 	if ok {
@@ -215,7 +216,7 @@ func (c *Conn) Emit(msg *Message) {
 	}
 }
 
-// Upgrades an HTTP connection and creates a new Conn type.
+// NewConnection upgrades an HTTP connection and creates a new Conn type
 func NewConnection(w http.ResponseWriter, r *http.Request, cr CookieReader) *Conn {
 	socket, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -238,7 +239,7 @@ func NewConnection(w http.ResponseWriter, r *http.Request, cr CookieReader) *Con
 	return c
 }
 
-// Calls NewConnection, starts the returned Conn's writer, joins the root room, and finally starts the Conn's reader.
+// SocketHandler calls NewConnection, starts the returned Conn's writer, joins the root room, and finally starts the Conn's reader
 func SocketHandler(cr CookieReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
