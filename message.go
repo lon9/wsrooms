@@ -44,7 +44,7 @@ type RoomMessage struct {
 // Returns a Message type from bytes.
 func BytesToMessage(data []byte) *Message {
 	buf := bytes.NewBuffer(data)
-	msg := &Message{}
+	msg := new(Message)
 	msg.RoomLength = int(binary.BigEndian.Uint32(buf.Next(4)))
 	msg.Room = string(buf.Next(msg.RoomLength))
 	msg.EventLength = int(binary.BigEndian.Uint32(buf.Next(4)))

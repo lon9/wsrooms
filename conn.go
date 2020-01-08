@@ -28,15 +28,14 @@ import (
 
 // The Conn type represents a single client.
 type Conn struct {
-	sync.Mutex
-	Cookie map[string]string
+	Cookie *sync.Map
 	Socket *websocket.Conn
 	ID     string
 	Send   chan []byte
-	Rooms  map[string]string
+	Rooms  *sync.Map
 }
 
-type CookieReader func(*http.Request) map[string]string
+type CookieReader func(*http.Request) *sync.Map
 
 const (
 	writeWait      = 10 * time.Second
@@ -54,10 +53,9 @@ var upgrader = websocket.Upgrader{
 var (
 	// Stores all Conn types by their uuid.
 	ConnManager = struct {
-		sync.Mutex
-		Conns map[string]*Conn
+		Conns *sync.Map
 	}{
-		Conns: make(map[string]*Conn),
+		Conns: new(sync.Map),
 	}
 	// Emits received Messages with non-reserved event names.
 	Emitter = emission.NewEmitter()
@@ -74,40 +72,34 @@ func HandleData(c *Conn, msg *Message) {
 		c.Emit(msg)
 	case "left":
 		c.Emit(msg)
-		RoomManager.Lock()
-		room, ok := RoomManager.Rooms[msg.Room]
-		RoomManager.Unlock()
-		if ok == false {
+		room, ok := RoomManager.Rooms.Load(msg.Room)
+		if !ok {
 			break
 		}
-		room.Lock()
-		delete(room.Members, c.ID)
-		members := len(room.Members)
-		room.Unlock()
-		if members == 0 {
-			room.Stop()
+		room.(*Room).Members.Delete(c.ID)
+		var length int
+		room.(*Room).Members.Range(func(_, _ interface{}) bool {
+			length++
+			return true
+		})
+		if length == 0 {
+			room.(*Room).Stop()
 		}
 	default:
 		if msg.Dst != "" {
-			RoomManager.Lock()
-			room, rok := RoomManager.Rooms[msg.Room]
-			RoomManager.Unlock()
+			room, rok := RoomManager.Rooms.Load(msg.Room)
 			if rok == false {
 				break
 			}
-			room.Lock()
-			id, mok := room.Members[msg.Dst]
-			room.Unlock()
+			id, mok := room.(*Room).Members.Load(msg.Dst)
 			if mok == false {
 				break
 			}
-			ConnManager.Lock()
-			dst, cok := ConnManager.Conns[id]
-			ConnManager.Unlock()
+			dst, cok := ConnManager.Conns.Load(id)
 			if cok == false {
 				break
 			}
-			dst.Send <- msg.Bytes()
+			dst.(*Conn).Send <- msg.Bytes()
 		} else if Emitter.GetListenerCount(msg.Event) > 0 {
 			Emitter.Emit(msg.Event, c, msg)
 		} else {
@@ -118,18 +110,13 @@ func HandleData(c *Conn, msg *Message) {
 
 func (c *Conn) readPump() {
 	defer func() {
-		c.Lock()
-		for name := range c.Rooms {
-			c.Unlock()
-			RoomManager.Lock()
-			room, ok := RoomManager.Rooms[name]
-			RoomManager.Unlock()
-			if ok == true {
-				room.Leave(c)
+		c.Rooms.Range(func(k, v interface{}) bool {
+			room, ok := RoomManager.Rooms.Load(k.(string))
+			if ok {
+				room.(*Room).Leave(c)
 			}
-			c.Lock()
-		}
-		c.Unlock()
+			return true
+		})
 		c.Socket.Close()
 	}()
 	c.Socket.SetReadLimit(maxMessageSize)
@@ -144,27 +131,23 @@ func (c *Conn) readPump() {
 			if _, wok := err.(*websocket.CloseError); wok == false {
 				break
 			}
-			c.Lock()
-			for name := range c.Rooms {
-				c.Unlock()
-				RoomManager.Lock()
-				room, rok := RoomManager.Rooms[name]
-				RoomManager.Unlock()
-				if rok == false {
-					c.Lock()
-					continue
+			c.Rooms.Range(func(k, v interface{}) bool {
+				room, rok := RoomManager.Rooms.Load(k.(string))
+				if !rok {
+					return true
 				}
-				room.Emit(c, ConstructMessage(name, "left", "", c.ID, []byte(c.ID)))
-				room.Lock()
-				delete(room.Members, c.ID)
-				members := len(room.Members)
-				room.Unlock()
-				if members == 0 {
-					room.Stop()
+				room.(*Room).Emit(c, ConstructMessage(k.(string), "left", "", c.ID, []byte(c.ID)))
+				room.(*Room).Members.Delete(c.ID)
+				var length int
+				room.(*Room).Members.Range(func(_, _ interface{}) bool {
+					length++
+					return true
+				})
+				if length == 0 {
+					room.(*Room).Stop()
 				}
-				c.Lock()
-			}
-			c.Unlock()
+				return true
+			})
 			break
 		}
 		HandleData(c, BytesToMessage(data))
@@ -185,7 +168,7 @@ func (c *Conn) writePump() {
 	for {
 		select {
 		case msg, ok := <-c.Send:
-			if ok == false {
+			if !ok {
 				c.write(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -202,45 +185,33 @@ func (c *Conn) writePump() {
 
 // Adds the Conn to a Room. If the Room does not exist, it is created.
 func (c *Conn) Join(name string) {
-	RoomManager.Lock()
-	room, ok := RoomManager.Rooms[name]
-	RoomManager.Unlock()
-	if ok == false {
+	room, ok := RoomManager.Rooms.Load(name)
+	if !ok {
 		room = NewRoom(name)
 	}
-	c.Lock()
-	c.Rooms[name] = name
-	c.Unlock()
-	room.Join(c)
+	c.Rooms.Store(name, name)
+	room.(*Room).Join(c)
 }
 
 // Removes the Conn from a Room.
 func (c *Conn) Leave(name string) {
-	RoomManager.Lock()
-	room, rok := RoomManager.Rooms[name]
-	RoomManager.Unlock()
-	if rok == false {
+	room, rok := RoomManager.Rooms.Load(name)
+	if !rok {
 		return
 	}
-	c.Lock()
-	_, cok := c.Rooms[name]
-	c.Unlock()
-	if cok == false {
+	_, cok := c.Rooms.Load(name)
+	if !cok {
 		return
 	}
-	c.Lock()
-	delete(c.Rooms, name)
-	c.Unlock()
-	room.Leave(c)
+	c.Rooms.Delete(name)
+	room.(*Room).Leave(c)
 }
 
 // Broadcasts a Message to all members of a Room.
 func (c *Conn) Emit(msg *Message) {
-	RoomManager.Lock()
-	room, ok := RoomManager.Rooms[msg.Room]
-	RoomManager.Unlock()
-	if ok == true {
-		room.Emit(c, msg)
+	room, ok := RoomManager.Rooms.Load(msg.Room)
+	if ok {
+		room.(*Room).Emit(c, msg)
 	}
 }
 
@@ -258,14 +229,12 @@ func NewConnection(w http.ResponseWriter, r *http.Request, cr CookieReader) *Con
 		Socket: socket,
 		ID:     id.String(),
 		Send:   make(chan []byte, 256),
-		Rooms:  make(map[string]string),
+		Rooms:  new(sync.Map),
 	}
 	if cr != nil {
 		c.Cookie = cr(r)
 	}
-	ConnManager.Lock()
-	ConnManager.Conns[c.ID] = c
-	ConnManager.Unlock()
+	ConnManager.Conns.Store(c.ID, c)
 	return c
 }
 
