@@ -22,39 +22,34 @@ import (
 	"sync"
 )
 
-// The Room type represents a communication channel.
+// Room type represents a communication channel
 type Room struct {
-	sync.Mutex
 	Name      string
-	Members   map[string]string
+	Members   *sync.Map
 	stopchan  chan bool
 	joinchan  chan *Conn
 	leavechan chan *Conn
 	Send      chan *RoomMessage
 }
 
-// Stores all Room types by their name.
+// RoomManager stores all Room types by their name
 var RoomManager = struct {
-	sync.Mutex
-	Rooms map[string]*Room
+	Rooms *sync.Map
 }{
-	Rooms: make(map[string]*Room, 0),
+	Rooms: new(sync.Map),
 }
 
-// Starts the Room.
+// Start starts the Room
 func (r *Room) Start() {
 	for {
 		select {
 		case c := <-r.joinchan:
 			members := make([]string, 0)
-			r.Lock()
-			for id := range r.Members {
-				r.Unlock()
-				members = append(members, id)
-				r.Lock()
-			}
-			r.Members[c.ID] = c.ID
-			r.Unlock()
+			r.Members.Range(func(k, v interface{}) bool {
+				members = append(members, k.(string))
+				return true
+			})
+			r.Members.Store(c.ID, c.ID)
 			payload, err := json.Marshal(members)
 			if err != nil {
 				log.Println(err)
@@ -62,80 +57,64 @@ func (r *Room) Start() {
 			}
 			c.Send <- ConstructMessage(r.Name, "join", "", c.ID, payload).Bytes()
 		case c := <-r.leavechan:
-			r.Lock()
-			id, ok := r.Members[c.ID]
-			r.Unlock()
-			if ok == false {
+			id, ok := r.Members.Load(c.ID)
+			if !ok {
 				break
 			}
-			r.Lock()
-			delete(r.Members, id)
-			r.Unlock()
-			c.Send <- ConstructMessage(r.Name, "leave", "", id, []byte(c.ID)).Bytes()
+			r.Members.Delete(id)
+			c.Send <- ConstructMessage(r.Name, "leave", "", id.(string), []byte(c.ID)).Bytes()
 		case rmsg := <-r.Send:
-			r.Lock()
-			for id := range r.Members {
-				r.Unlock()
-				ConnManager.Lock()
-				c, ok := ConnManager.Conns[id]
-				ConnManager.Unlock()
+			r.Members.Range(func(k, v interface{}) bool {
+				c, ok := ConnManager.Conns.Load(k)
 				if !ok || c == rmsg.Sender {
-					r.Lock()
-					continue
+					return true
 				}
 				select {
-				case c.Send <- rmsg.Data:
+				case c.(*Conn).Send <- rmsg.Data:
 				default:
-					r.Lock()
-					delete(r.Members, id)
-					r.Unlock()
-					close(c.Send)
+					r.Members.Delete(k)
+					close(c.(*Conn).Send)
 				}
-				r.Lock()
-			}
-			r.Unlock()
+				return true
+			})
 		case <-r.stopchan:
-			RoomManager.Lock()
-			delete(RoomManager.Rooms, r.Name)
-			RoomManager.Unlock()
+			RoomManager.Rooms.Delete(r.Name)
 			return
 		}
 	}
 }
 
-// Stops the Room.
+// Stop stops the Room
 func (r *Room) Stop() {
 	r.stopchan <- true
 }
 
-// Adds a Conn to the Room.
+// Join adds a Conn to the Room
 func (r *Room) Join(c *Conn) {
 	r.joinchan <- c
 }
 
-// Removes a Conn from the Room.
+// Leave removes a Conn from the Room
 func (r *Room) Leave(c *Conn) {
 	r.leavechan <- c
 }
 
-// Broadcasts data to all members of the Room.
+// Emit broadcasts data to all members of the Room
 func (r *Room) Emit(c *Conn, msg *Message) {
 	r.Send <- &RoomMessage{c, msg.Bytes()}
 }
 
-// Creates a new Room type and starts it.
+// NewRoom creates a new Room type and starts it
 func NewRoom(name string) *Room {
 	r := &Room{
 		Name:      name,
-		Members:   make(map[string]string),
+		Members:   new(sync.Map),
 		stopchan:  make(chan bool),
 		joinchan:  make(chan *Conn),
 		leavechan: make(chan *Conn),
 		Send:      make(chan *RoomMessage),
 	}
-	RoomManager.Lock()
-	RoomManager.Rooms[name] = r
-	RoomManager.Unlock()
+	RoomManager.Rooms.Store(name, r)
 	go r.Start()
 	return r
 }
