@@ -175,7 +175,7 @@ func (c *Conn) WritePump() {
 				c.write(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := c.write(websocket.BinaryMessage, msg); err != nil {
+			if err := c.write(websocket.TextMessage, msg); err != nil {
 				return
 			}
 		case <-ticker.C:

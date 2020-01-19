@@ -17,22 +17,21 @@
 package wsrooms
 
 import (
-	"bytes"
-	"encoding/binary"
+	"encoding/json"
 )
 
 // Message protocol followed by wsrooms servers and clients
 type Message struct {
-	RoomLength    int    // room name length
-	Room          string // room name
-	EventLength   int    // event name length
-	Event         string // event name
-	DstLength     int    // destination id length
-	Dst           string // destination id
-	SrcLength     int    // source id length
-	Src           string // source id
-	PayloadLength int    // payload length
-	Payload       []byte // payload
+	RoomLength    int    `json:"roomLength"`    // room name length
+	Room          string `json:"room"`          // room name
+	EventLength   int    `json:"eventLength"`   // event name length
+	Event         string `json:"event"`         // event name
+	DstLength     int    `json:"dstLength"`     // destination id length
+	Dst           string `json:"dst"`           // destination id
+	SrcLength     int    `json:"srcLength"`     // source id length
+	Src           string `json:"src"`           // source id
+	PayloadLength int    `json:"payloadLength"` // payload length
+	Payload       []byte `json:"payload"`       // payload
 }
 
 // RoomMessage used only with a room's Send channel
@@ -43,35 +42,15 @@ type RoomMessage struct {
 
 // BytesToMessage returns a Message type from bytes
 func BytesToMessage(data []byte) *Message {
-	buf := bytes.NewBuffer(data)
 	msg := new(Message)
-	msg.RoomLength = int(binary.BigEndian.Uint32(buf.Next(4)))
-	msg.Room = string(buf.Next(msg.RoomLength))
-	msg.EventLength = int(binary.BigEndian.Uint32(buf.Next(4)))
-	msg.Event = string(buf.Next(msg.EventLength))
-	msg.DstLength = int(binary.BigEndian.Uint32(buf.Next(4)))
-	msg.Dst = string(buf.Next(msg.DstLength))
-	msg.SrcLength = int(binary.BigEndian.Uint32(buf.Next(4)))
-	msg.Src = string(buf.Next(msg.SrcLength))
-	msg.PayloadLength = int(binary.BigEndian.Uint32(buf.Next(4)))
-	msg.Payload = buf.Next(msg.PayloadLength)
+	json.Unmarshal(data, msg)
 	return msg
 }
 
 // Bytes returns bytes from a Message type
 func (msg *Message) Bytes() []byte {
-	buf := bytes.NewBuffer([]byte{})
-	binary.Write(buf, binary.BigEndian, uint32(msg.RoomLength))
-	buf.Write([]byte(msg.Room))
-	binary.Write(buf, binary.BigEndian, uint32(msg.EventLength))
-	buf.Write([]byte(msg.Event))
-	binary.Write(buf, binary.BigEndian, uint32(msg.DstLength))
-	buf.Write([]byte(msg.Dst))
-	binary.Write(buf, binary.BigEndian, uint32(msg.SrcLength))
-	buf.Write([]byte(msg.Src))
-	binary.Write(buf, binary.BigEndian, uint32(msg.PayloadLength))
-	buf.Write(msg.Payload)
-	return buf.Bytes()
+	b, _ := json.Marshal(msg)
+	return b
 }
 
 // ConstructMessage constructs and returns a new Message type
